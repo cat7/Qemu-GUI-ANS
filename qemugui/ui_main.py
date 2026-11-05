@@ -158,6 +158,10 @@ class MainWindow(tk.Tk):
         self.refresh_list(select=settings.last_machine)
         self.after(1000, self._poll)
         self.protocol("WM_DELETE_WINDOW", self._quit)
+        # Tk's own handler exits from inside the signal and can abort.
+        for sig in (signal.SIGINT, signal.SIGTERM, getattr(signal, "SIGHUP", None)):
+            if sig is not None:
+                signal.signal(sig, self._on_signal)
 
     # ---------------- layout
     def _build(self):
@@ -618,4 +622,13 @@ class MainWindow(tk.Tk):
                 return
         for r in self.running.values():
             r.stop()
+        self.destroy()
+
+    def _on_signal(self, signum, frame):
+        """Quit from the event loop; running machines are left running."""
+        self.after(0, self._quit_on_signal)
+
+    def _quit_on_signal(self):
+        self.save_notes()
+        self._save_settings()
         self.destroy()
