@@ -94,6 +94,8 @@ def machine_option(m: Machine, machine_dir: str, platform: str) -> str:
         parts.append(f"nvram={qopt(_path(m.nvram.strip(), machine_dir, platform))}")
     if m.power_supplies != 1:
         parts.append(f"power-supplies={m.power_supplies}")
+    if m.video == "rage128pro":
+        parts.append("onboard-video=off")
     parts.append(f"lcd={LCD_CHARDEV}")
     return ",".join(parts)
 
@@ -164,6 +166,19 @@ def scsi_args(s, machine_dir: str, platform: str) -> list:
             "-device", f"scsi-hd,drive={did},bus={s.bus},scsi-id={s.id}"]
 
 
+def video_args(m: Machine, qemu_dir: str, platform: str) -> list:
+    """The Rage 128 Pro, with the PCI id its ROM carries: Open Firmware runs
+    a card's FCode only when the two match."""
+    if m.video != "rage128pro":
+        return []
+    rom = _path(m.video_rom, qemu_dir, platform)
+    opt = f"ati-rage128-pro,bus={model.RAGE_BUS},addr=0x{model.RAGE_ADDR:x},romfile={qopt(rom)}"
+    ids = model.rom_pci_id(rom)
+    if ids and ids[0] == model.ATI_VENDOR:
+        opt += f",device-id=0x{ids[1]:04x}"
+    return ["-device", opt]
+
+
 def qmp_args(port: int) -> list:
     return ["-qmp", f"tcp:127.0.0.1:{port},server=on,wait=off"]
 
@@ -186,6 +201,7 @@ def build_argv(m: Machine, qemu_dir: str, machine_dir: str,
     argv += lcd_args(lcd if lcd is not None else lcd_port(m))
     argv += serial_args(m)
     argv += ["-display", display_option(m)]
+    argv += video_args(m, qemu_dir, platform)
     argv += ["-nic", nic_option(m.network)]
     order = {b: i for i, b in enumerate(model.SCSI_BUS_NAMES)}
     for s in sorted(m.scsi, key=lambda x: (order.get(x.bus, 9), x.id)):

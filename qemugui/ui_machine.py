@@ -261,8 +261,8 @@ class MachineEditor(tk.Toplevel):
                    fallback=lambda: self.qemu_dir).grid(row=r, column=1, columnspan=2,
                                                         sticky="ew", pady=4)
         r += 1
-        ttk.Label(f, text="The Network Server ROM, Open Firmware 1.1.22 (4 MB). Double-click "
-                          "to choose it.", foreground=GREY).grid(row=r, column=1, columnspan=2,
+        ttk.Label(f, text="The Network Server ROM (4 MB): 1.1.22 for AIX, 2.0 for Mac OS. "
+                          "Double-click to choose it.", foreground=GREY).grid(row=r, column=1, columnspan=2,
                                                                  sticky="w")
         r += 1
         ttk.Label(f, text="Memory (MB):").grid(row=r, column=0, sticky="w", pady=4)
@@ -330,10 +330,20 @@ class MachineEditor(tk.Toplevel):
         f = self._tab("Display")
         f.columnconfigure(1, weight=1)
         self._heading(f, 0, "Screen")
-        ttk.Label(f, text="The built-in Cirrus 54M30 (1 MB, up to 1024 x 768 at 256 colours). "
-                          "Its mode is set by Open Firmware and AIX (CDE at 1024 x 768 after "
-                          "chdev -l gda0).", foreground=GREY, wraplength=EDITOR_WIDTH - 60,
-                  justify="left").grid(row=1, column=0, columnspan=3, sticky="w")
+        ttk.Label(f, text="Video card:").grid(row=1, column=0, sticky="w", pady=4)
+        self.video_var = tk.StringVar()
+        vcb = ttk.Combobox(f, textvariable=self.video_var, state="readonly", width=30,
+                           values=[model.VIDEO_LABELS[k] for k in model.VIDEO_CARDS])
+        vcb.grid(row=1, column=1, columnspan=2, sticky="w", pady=4)
+        vcb.bind("<<ComboboxSelected>>", self._video_changed)
+        ttk.Label(f, text="Card ROM:").grid(row=5, column=0, sticky="w", pady=4)
+        self.video_rom_var = tk.StringVar()
+        self.video_rom_picker = FilePicker(f, self.video_rom_var, ROM_TYPES, width=40,
+                                           fallback=lambda: self.qemu_dir)
+        self.video_rom_picker.grid(row=5, column=1, columnspan=2, sticky="ew", pady=4)
+        self.video_note = ttk.Label(f, foreground=GREY, wraplength=EDITOR_WIDTH - 60,
+                                    justify="left")
+        self.video_note.grid(row=6, column=0, columnspan=3, sticky="w")
         ttk.Label(f, text="Display:").grid(row=2, column=0, sticky="w", pady=(10, 4))
         self.display_var = tk.StringVar()
         dcb = ttk.Combobox(f, textvariable=self.display_var,
@@ -347,6 +357,19 @@ class MachineEditor(tk.Toplevel):
                                        variable=self.swap_var)
         self.swap_cb.grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
         ToolTip(self.swap_cb, SWAP_TIP)
+
+    VIDEO_NOTES = {
+        "54m30": "The built-in Cirrus 54M30 (1 MB, up to 1024 x 768 at 256 colours). Its mode "
+                 "is set by Open Firmware and AIX (CDE at 1024 x 768 after chdev -l gda0).",
+        "rage128pro": "A Rage 128 Pro in PCI slot D, in place of the built-in video. Needs the "
+                      "card's Mac ROM (for example ati_rage128pro_136_agp.rom) and the "
+                      "Network Server ROM 2.0. Double-click to choose the card ROM.",
+    }
+
+    def _video_changed(self, _e=None):
+        v = model.video_by_label(self.video_var.get())
+        self.video_note.config(text=self.VIDEO_NOTES[v])
+        self.video_rom_picker.entry.config(state="normal" if v == "rage128pro" else "disabled")
 
     def _display_changed(self, _e=None):
         self.swap_cb.config(state="normal" if self.display_var.get() == "cocoa" else "disabled")
@@ -374,7 +397,7 @@ class MachineEditor(tk.Toplevel):
             r += 1
         ttk.Label(f, text="CDs are read-only. AIX installs from the Install CD with the key at "
                           "Service and a blank NVRAM (CD on internal bus 0, ID 0; the disk "
-                          "on ID 2).", foreground=GREY, wraplength=EDITOR_WIDTH - 60,
+                          "on ID 2). Mac OS starts from a Mac OS CD on internal bus 0 or 1.", foreground=GREY, wraplength=EDITOR_WIDTH - 60,
                   justify="left").grid(row=r, column=0, sticky="w", padx=4, pady=(8, 0))
         r += 1
         bar = ttk.Frame(f)
@@ -476,6 +499,9 @@ class MachineEditor(tk.Toplevel):
         self.display_var.set(m.display)
         self.swap_var.set(m.swap_opt_cmd)
         self._display_changed()
+        self.video_var.set(model.VIDEO_LABELS.get(m.video, model.VIDEO_LABELS[model.VIDEO_DEFAULT]))
+        self.video_rom_var.set(m.video_rom)
+        self._video_changed()
         for row in self.drive_rows:
             row.set(m.scsi_at(row.bus, row.sid))
         for i, row in enumerate(self.serial_rows):
@@ -509,6 +535,8 @@ class MachineEditor(tk.Toplevel):
         m.nvram = self.nvram_var.get().strip()
         m.display = self.display_var.get()
         m.swap_opt_cmd = self.swap_var.get()
+        m.video = model.video_by_label(self.video_var.get())
+        m.video_rom = self.video_rom_var.get().strip()
         m.scsi = [d for d in (row.get() for row in self.drive_rows) if d]
         m.serial = [row.get(model.SERIAL_DEFAULT_PORTS[i]) for i, row in enumerate(self.serial_rows)]
         mode = model.network_mode_by_label(self.net_mode.get())

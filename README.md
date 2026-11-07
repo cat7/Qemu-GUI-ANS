@@ -1,8 +1,8 @@
 # Qemu-system-ppc ANS GUI
 
 A launcher for the Apple Network Server 700/200 in `qemu-system-ppc`
-(`-M ans700`): one 200 MHz PowerPC 604e, the Network Server ROM (Open
-Firmware 1.1.22) and AIX 4.1.5. Its main window carries a copy of the
+(`-M ans700`): one 200 MHz PowerPC 604e, the Network Server ROM, and AIX
+4.1.5 (ROM 1.1.22) or Mac OS (ROM 2.0, with an ATI Rage 128 Pro). Its main window carries a copy of the
 machine's front panel: the four-line, twenty-character LCD, live, with the
 keyswitch and the reset button beside it.
 
@@ -48,7 +48,7 @@ runs.
 ## What it sets up
 
 - ROM (`-bios`): the Network Server ROM, a 4 MB image, chosen by the
-  person; a new machine has none.
+  person; a new machine has none. 1.1.22 runs AIX; 2.0 runs Mac OS.
 - Memory (`-m`): 16 to 512 MB in pairs of DIMMs (16, 32, 48, 64, 96, 128,
   192, 256, 384, 512 MB, and any other size that splits into up to four
   pairs of DIMMs of at most 64 MB).
@@ -66,14 +66,18 @@ runs.
   - internal bus 1, the second 53C825A (`scsi.2`): IDs 4-6 are `disk4`-`disk6`;
   - the external 53C94 (`scsi.0`).
   The AIX install that is known to work: Install CD at internal bus 0 ID 0,
-  disk at ID 2, key at Service, blank NVRAM. New blank disks are made with
+  disk at ID 2, key at Service, blank NVRAM. Mac OS 8.5 starts from its CD
+  on internal bus 0 or 1 (ROM 2.0, Rage 128 Pro). New blank disks are made with
   `qemu-img`.
 - Serial ports A and B (the ESCC): a telnet server on a local port each
   (4555 and 4556 by default; `telnet 127.0.0.1 PORT`), or off. AIX's
   serial console is on port B; Open Firmware's on port A once its console
   is set to `ttya`.
-- Screen: the built-in Cirrus 54M30, shown with cocoa or sdl (gtk off a
-  Mac), or `none` for no window at all (the front panel and the serial
+- Video card: the built-in Cirrus 54M30 (AIX), or an ATI Rage 128 Pro in
+  PCI slot D of the second bridge in its place (Mac OS; `onboard-video=off`),
+  with the card's Mac ROM chosen by the person. The card is given the PCI
+  device id from its ROM (`device-id=`), as Open Firmware requires.
+- Screen: shown with cocoa or sdl (gtk off a Mac), or `none` for no window at all (the front panel and the serial
   ports still work). Option/Command swap with cocoa.
 - Network: the built-in MACE Ethernet (`-nic`) with slirp (port forwards
   from 127.0.0.1; 2323 -> 23 is telnet into AIX), vmnet (macOS) or tap

@@ -321,6 +321,43 @@ def default_display(platform: str = paths.HOST_PLATFORM) -> str:
     return displays_for_host(platform)[0]
 
 
+# ---------------------------------------------------------------- video card
+
+# "54m30": the built-in Cirrus only (AIX). "rage128pro": an ATI Rage 128 Pro
+# in PCI slot D of the second bridge (the only slots ROM 2.0 probes there)
+# and no built-in video, so the window shows the card Mac OS uses.
+VIDEO_CARDS = ("54m30", "rage128pro")
+VIDEO_LABELS = {"54m30": "Built-in Cirrus 54M30 (AIX)",
+                "rage128pro": "ATI Rage 128 Pro (Mac OS)"}
+VIDEO_DEFAULT = "54m30"
+RAGE_BUS = "bandit@f4000000"
+RAGE_ADDR = 0x0D
+ATI_VENDOR = 0x1002
+
+
+def video_by_label(label: str) -> str:
+    for k, v in VIDEO_LABELS.items():
+        if v == label:
+            return k
+    return VIDEO_DEFAULT
+
+
+def rom_pci_id(path: str) -> tuple | None:
+    """(vendor, device) from a PCI option ROM's PCIR block, or None."""
+    try:
+        with open(str(path or ""), "rb") as fh:
+            head = fh.read(0x10000)
+    except OSError:
+        return None
+    if len(head) < 0x1c or head[:2] != b"\x55\xaa":
+        return None
+    off = int.from_bytes(head[0x18:0x1a], "little")
+    if off + 8 > len(head) or head[off:off + 4] != b"PCIR":
+        return None
+    return (int.from_bytes(head[off + 4:off + 6], "little"),
+            int.from_bytes(head[off + 6:off + 8], "little"))
+
+
 # ---------------------------------------------------------------- NVRAM
 
 # Grand Central's NVRAM, in a file of the machine's own. Blank (all zero) =
@@ -350,6 +387,8 @@ class Machine:
     power_supplies: int = 1
     display: str = "cocoa"
     swap_opt_cmd: bool = False       # cocoa only
+    video: str = VIDEO_DEFAULT
+    video_rom: str = ""              # the card's ROM, for rage128pro
     network: Network = field(default_factory=Network)
     scsi: list = field(default_factory=list)
     serial: list = field(default_factory=default_serials)
@@ -369,6 +408,8 @@ class Machine:
             "power_supplies": self.power_supplies,
             "display": self.display,
             "swap_opt_cmd": self.swap_opt_cmd,
+            "video": self.video,
+            "video_rom": self.video_rom,
             "network": self.network.to_dict(),
             "scsi": [d.to_dict() for d in sorted(self.scsi, key=lambda s: (order.get(s.bus, 9), s.id))],
             "serial": [s.to_dict() for s in self.serial],
@@ -399,6 +440,8 @@ class Machine:
             power_supplies=psu,
             display=str(d.get("display") or default_display()),
             swap_opt_cmd=bool(d.get("swap_opt_cmd", False)),
+            video=str(d.get("video") or VIDEO_DEFAULT),
+            video_rom=str(d.get("video_rom", "") or ""),
             network=Network.from_dict(d.get("network")),
             scsi=[s for s in (ScsiDrive.from_dict(x) for x in d.get("scsi") or []) if s],
             serial=ports,
@@ -467,6 +510,8 @@ def start_blockers(m: Machine, qemu_dir: str | None = None) -> list:
         out.append("No ROM chosen.")
     elif qemu_dir and not Path(paths.join_path(qemu_dir, m.rom, paths.HOST_PLATFORM)).is_file():
         out.append(f"The ROM is missing: {paths.join_path(qemu_dir, m.rom, paths.HOST_PLATFORM)}")
+    if m.video == "rage128pro" and not (m.video_rom or "").strip():
+        out.append("No ROM chosen for the Rage 128 Pro.")
     return out
 
 
@@ -495,6 +540,9 @@ def validate(m: Machine, qemu_dir: str | None, platform: str = paths.HOST_PLATFO
         errors.append(f"'{m.display}' is not a display setting.")
     elif m.display == "cocoa" and platform != "darwin":
         warnings.append("'cocoa' only works on a Mac.")
+
+    if m.video not in VIDEO_CARDS:
+        errors.append(f"'{m.video}' is not a video card setting.")
 
     net = m.network
     if net.mode not in NETWORK_MODES:
@@ -562,6 +610,15 @@ def validate(m: Machine, qemu_dir: str | None, platform: str = paths.HOST_PLATFO
                     warnings.append(f"The ROM is missing: {rom}")
                 elif size != ROM_SIZE:
                     warnings.append(f"{rom.name} is not a 4 MB ROM image.")
+        if m.video == "rage128pro" and m.video_rom:
+            card = (Path(paths.join_path(qd, m.video_rom, platform)) if qd
+                    else Path(m.video_rom).expanduser())
+            if card.is_absolute() or qd:
+                ids = rom_pci_id(str(card))
+                if not card.is_file():
+                    warnings.append(f"The card ROM is missing: {card}")
+                elif ids is None or ids[0] != ATI_VENDOR:
+                    warnings.append(f"{card.name} is not an ATI card ROM.")
         for s in m.scsi:
             if not s.file:
                 continue

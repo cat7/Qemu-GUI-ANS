@@ -115,6 +115,33 @@ class Argv(unittest.TestCase):
         m.power_supplies = 2
         self.assertIn("power-supplies=2", command.build_argv(m, QD, MD, "darwin")[2])
 
+    def test_rage128_pro_takes_its_rom_pci_id(self):
+        with tempfile.TemporaryDirectory() as d:
+            rom = bytearray(0x200)
+            rom[0:2] = b"\x55\xaa"
+            rom[0x18:0x1a] = (0x100).to_bytes(2, "little")
+            rom[0x100:0x108] = b"PCIR" + (0x1002).to_bytes(2, "little") + (0x5046).to_bytes(2, "little")
+            Path(d, "r128.rom").write_bytes(bytes(rom))
+            m = aix_machine()
+            m.video, m.video_rom = "rage128pro", "r128.rom"
+            argv = command.build_argv(m, d, MD, "darwin", qmp=47001, lcd=48001)
+        self.assertIn("onboard-video=off", argv[argv.index("-M") + 1])
+        dev = argv[argv.index("-device", argv.index("-display")) + 1]
+        self.assertEqual(dev, f"ati-rage128-pro,bus=bandit@f4000000,addr=0xd,"
+                              f"romfile={d}/r128.rom,device-id=0x5046")
+        self.assertEqual(model.start_blockers(m), [])
+
+    def test_rage128_pro_without_rom_cannot_start(self):
+        m = aix_machine()
+        m.video = "rage128pro"
+        self.assertIn("No ROM chosen for the Rage 128 Pro.", model.start_blockers(m))
+        self.assertEqual(model.Machine.from_json(m.to_json()).video, "rage128pro")
+
+    def test_built_in_video_by_default(self):
+        argv = command.build_argv(aix_machine(), QD, MD, "darwin", qmp=47001, lcd=48001)
+        self.assertNotIn("onboard-video=off", argv[argv.index("-M") + 1])
+        self.assertFalse(any("ati-rage128-pro" in t for t in argv))
+
     def test_no_rom_leaves_bios_out(self):
         m = aix_machine()
         m.rom = ""
